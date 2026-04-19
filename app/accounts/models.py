@@ -28,6 +28,7 @@ class CustomAccountManager(BaseUserManager):
         extra_fields.setdefault("is_staff", True)
         extra_fields.setdefault("is_superuser", True)
         extra_fields.setdefault("is_active", True)
+        extra_fields.setdefault("role", UserAccount.Role.ADMIN)
         if not extra_fields["is_staff"]:
             raise ValueError(_("Superuser must have is_staff=True"))
         if not extra_fields["is_superuser"]:
@@ -36,6 +37,11 @@ class CustomAccountManager(BaseUserManager):
 
 
 class UserAccount(AbstractBaseUser, PermissionsMixin, BaseModel):
+    class Role(models.TextChoices):
+        ADMIN = "admin", "Admin"
+        USER = "user", "User"
+        CREATOR = "creator", "Creator"
+
     class AuthProvider(models.TextChoices):
         EMAIL = "email", "Email"
         GOOGLE = "google", "Google"
@@ -47,6 +53,12 @@ class UserAccount(AbstractBaseUser, PermissionsMixin, BaseModel):
     profile_pic = CloudinaryField(blank=True, null=True)
     profile_updated_at = models.DateTimeField(blank=True, null=True)
 
+    role = models.CharField(
+        max_length=20,
+        choices=Role.choices,
+        default=Role.USER,
+        db_index=True,
+    )
     auth_provider = models.CharField(
         max_length=20,
         choices=AuthProvider.choices,
