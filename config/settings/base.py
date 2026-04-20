@@ -47,6 +47,7 @@ INSTALLED_APPS += [
     'app.accounts',
     'app.creator',
     'app.community',
+    'app.dashboard',
 ]
 
 MIDDLEWARE = [
