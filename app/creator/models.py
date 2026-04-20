@@ -34,6 +34,33 @@ class CreatorApplication(BaseModel):
         blank=True
     )
 
+    mobile_number = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Applicant's mobile number"
+    )
+
+    whatsapp_number = models.CharField(
+        max_length=20,
+        blank=True,
+        default="",
+        help_text="Applicant's WhatsApp number (if different from mobile)"
+    )
+
+    primary_platform_link = models.URLField(
+        blank=True,
+        default="",
+        help_text="Link to the applicant's primary social/content platform"
+    )
+
+    selfie = models.ImageField(
+        upload_to="creator_applications/selfies/",
+        null=True,
+        blank=True,
+        help_text="Applicant's selfie for identity verification"
+    )
+
     def approve(self):
         self.status = self.Status.APPROVED
         self.reviewed_at = timezone.now()

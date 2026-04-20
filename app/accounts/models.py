@@ -1,9 +1,11 @@
 from django.contrib.auth.models import AbstractBaseUser, PermissionsMixin
 from django.contrib.auth.base_user import BaseUserManager
+from django.contrib.auth.hashers import make_password, check_password
 from django.core.exceptions import ValidationError
 from django.utils.translation import gettext_lazy as _
 from django.utils import timezone
 from django.db import models
+import uuid
 from cloudinary.models import CloudinaryField
 from core.models import BaseModel
 
@@ -66,7 +68,7 @@ class UserAccount(AbstractBaseUser, PermissionsMixin, BaseModel):
     )
     provider_uid = models.CharField(max_length=255, blank=True, null=True, unique=True)
 
-    is_active = models.BooleanField(default=True)
+    is_active = models.BooleanField(default=False)
     is_staff = models.BooleanField(default=False)
     date_joined = models.DateTimeField(default=timezone.now)
 
@@ -97,7 +99,18 @@ class UserAccount(AbstractBaseUser, PermissionsMixin, BaseModel):
         if self.auth_provider != self.AuthProvider.EMAIL and not self.provider_uid:
             raise ValidationError(_("OAuth users must have a provider_uid."))
 
+    def _generate_unique_username(self):
+        base = self.email.split("@")[0].lower()
+        # Keep only alphanumeric and underscores, limit length
+        base = "".join(c if c.isalnum() or c == "_" else "_" for c in base)[:20]
+        username = base
+        while UserAccount.objects.filter(username=username).exclude(pk=self.pk).exists():
+            username = f"{base}_{uuid.uuid4().hex[:6]}"
+        return username
+
     def save(self, *args, **kwargs):
+        if not self.username:
+            self.username = self._generate_unique_username()
         if self.profile_pic != self._original_profile_pic:
             self.profile_updated_at = timezone.now()
             self._original_profile_pic = self.profile_pic
@@ -116,3 +129,42 @@ class UserAccount(AbstractBaseUser, PermissionsMixin, BaseModel):
 
     def __repr__(self) -> str:
         return f"<UserAccount id={self.pk} email={self.email!r}>"
+
+
+class OTPVerification(models.Model):
+    class Purpose(models.TextChoices):
+        REGISTRATION = "registration", "Registration"
+
+    user = models.ForeignKey(
+        "accounts.UserAccount",
+        on_delete=models.CASCADE,
+        related_name="otp_verifications",
+    )
+    token = models.UUIDField(default=uuid.uuid4, unique=True, editable=False)
+    _otp_hash = models.CharField(max_length=128, db_column="otp_hash")
+    purpose = models.CharField(
+        max_length=30,
+        choices=Purpose.choices,
+        default=Purpose.REGISTRATION,
+    )
+    expires_at = models.DateTimeField()
+    is_used = models.BooleanField(default=False)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        ordering = ["-created_at"]
+
+    def set_otp(self, raw_otp: str):
+        """Hash and store the raw OTP."""
+        self._otp_hash = make_password(raw_otp)
+
+    def check_otp(self, raw_otp: str) -> bool:
+        """Verify a raw OTP against the stored hash."""
+        return check_password(raw_otp, self._otp_hash)
+
+    @property
+    def is_expired(self) -> bool:
+        return timezone.now() > self.expires_at
+
+    def __str__(self) -> str:
+        return f"OTP({self.purpose}) for {self.user.email}"
