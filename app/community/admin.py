@@ -1,3 +1,6 @@
 from django.contrib import admin
 
-# Register your models here.
+from app.community.model.room import Room
+
+admin.site.register(Room)
+
