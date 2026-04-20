@@ -48,6 +48,7 @@ INSTALLED_APPS += [
     'app.creator',
     'app.community',
     'app.dashboard',
+    'app.feed',
 ]
 
 MIDDLEWARE = [
