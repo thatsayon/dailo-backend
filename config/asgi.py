@@ -1,16 +1,22 @@
-"""
-ASGI config for config project.
-
-It exposes the ASGI callable as a module-level variable named ``application``.
-
-For more information on this file, see
-https://docs.djangoproject.com/en/6.0/howto/deployment/asgi/
-"""
-
 import os
 
+os.environ.setdefault(
+    'DJANGO_SETTINGS_MODULE',
+    'config.settings.dev'
+)
+
+# django.setup() is called inside get_asgi_application().
+# ALL model / routing imports MUST come after this line.
 from django.core.asgi import get_asgi_application
+django_asgi_app = get_asgi_application()
 
-os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'config.settings.dev')
+from channels.routing import ProtocolTypeRouter, URLRouter
+from config.ws_middleware import JwtAuthMiddlewareStack
+from config.websocket_routes import websocket_urlpatterns
 
-application = get_asgi_application()
+application = ProtocolTypeRouter({
+    "http": django_asgi_app,
+    "websocket": JwtAuthMiddlewareStack(
+        URLRouter(websocket_urlpatterns)
+    ),
+})

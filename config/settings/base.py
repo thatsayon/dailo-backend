@@ -35,6 +35,7 @@ INSTALLED_APPS = [
 
 # Third-party apps
 INSTALLED_APPS += [
+    'channels',
     'rest_framework',
     'rest_framework_simplejwt.token_blacklist',
     'corsheaders',
@@ -47,6 +48,7 @@ INSTALLED_APPS += [
     'app.accounts',
     'app.creator',
     'app.community',
+    'app.notification',
     'app.dashboard',
     'app.feed',
 ]
@@ -99,7 +101,16 @@ TEMPLATES = [
 ]
 
 WSGI_APPLICATION = 'config.wsgi.application'
+ASGI_APPLICATION = "config.asgi.application"
 
+CHANNEL_LAYERS = {
+    "default": {
+        "BACKEND": "channels_redis.core.RedisChannelLayer",
+        "CONFIG": {
+            "hosts": [("127.0.0.1", 6379)],
+        },
+    },
+}
 
 # Database
 # https://docs.djangoproject.com/en/6.0/ref/settings/#databases

@@ -6,6 +6,7 @@ from django.utils import timezone
 from app.creator.models import CreatorApplication, CreatorProfile
 from app.community.models import Room
 from app.accounts.models import UserAccount
+from app.community.services.membership_service import join_room
 
 
 def generate_unique_slug(base_slug: str):
@@ -55,7 +56,7 @@ def update_creator_application_status(
         base_slug = slugify(application.display_name)
         slug = generate_unique_slug(base_slug)
 
-        Room.objects.get_or_create(
+        room, _ = Room.objects.get_or_create(
             creator=profile,
             defaults={
                 "name": application.display_name,
@@ -64,5 +65,8 @@ def update_creator_application_status(
                 "price_monthly": 0,
             }
         )
+
+        # auto join the creator to their own room
+        join_room(user=application.user, room=room)
 
     return application
