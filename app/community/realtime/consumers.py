@@ -28,6 +28,7 @@ class UserChatConsumer(AsyncWebsocketConsumer):
             "content":    "Hello!",
             "channel":    "community",
             "parent_id":  null,
+            "attachment_url": "https://media.../file.jpg",
             "created_at": "2026-04-21T05:00:00+06:00"
         }
     """
@@ -65,6 +66,7 @@ class UserChatConsumer(AsyncWebsocketConsumer):
         parent_id = data.get("parent_id")
 
         if not room_slug or not content:
+            # For websocket only text is allowed, attachments come through HTTP
             return
 
         # Verify the user is actually a member of the requested room
@@ -99,6 +101,7 @@ class UserChatConsumer(AsyncWebsocketConsumer):
                     "content": message.content,
                     "channel": message.channel,
                     "parent_id": str(message.parent_id) if message.parent_id else None,
+                    "attachment_url": None, # WebSockets only do text for us
                     "created_at": message.created_at.isoformat(),
                 }
             }
