@@ -1,76 +1,77 @@
-version: "3.9"
+name: CI/CD
 
-services:
-  db:
-    image: postgres:15-alpine
+on:
+  push:
+    branches: [ "main", "master" ]
+  pull_request:
+    branches: [ "main", "master" ]
 
-    environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: dailo
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    
+    services:
+      postgres:
+        image: postgres:15
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: dailo
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
 
-    volumes:
-      - postgres_data:/var/lib/postgresql/data
+      redis:
+        image: redis:7
+        ports:
+          - 6379:6379
+          
+    steps:
+    - uses: actions/checkout@v4
 
-    restart: unless-stopped
+    - name: Install uv
+      uses: astral-sh/setup-uv@v3
+      with:
+        enable-cache: true
+        
+    - name: Set up Python
+      run: uv python install 3.12
 
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres"]
-      interval: 10s
-      timeout: 5s
-      retries: 5
+    - name: Install dependencies
+      run: uv sync --all-extras --dev
 
-  redis:
-    image: redis:7-alpine
+    - name: Run tests
+      env:
+        ENVIRONMENT: dev
+        SECRET_KEY: test_secret_key
+        DATABASE_URL: postgres://postgres:postgres@localhost:5432/dailo
+        CELERY_BROKER_URL: redis://localhost:6379/0
+        CELERY_RESULT_BACKEND: redis://localhost:6379/0
+      run: |
+        uv run python manage.py test
 
-    restart: unless-stopped
-
-
-  web:
-    build: .
-
-    command: gunicorn config.asgi:application \
-      -k uvicorn.workers.UvicornWorker \
-      --bind 0.0.0.0:8000 \
-      --workers 3
-
-    ports:
-      - "8000:8000"
-
-    env_file:
-      - .env
-
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.prod
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/dailo
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-    restart: unless-stopped
-
-  celery:
-    build: .
-
-    command: celery -A config worker -l info
-
-    env_file:
-      - .env
-
-    environment:
-      DJANGO_SETTINGS_MODULE: config.settings.prod
-      DATABASE_URL: postgresql://postgres:postgres@db:5432/dailo
-      CELERY_BROKER_URL: redis://redis:6379/0
-      CELERY_RESULT_BACKEND: redis://redis:6379/0
-
-    depends_on:
-      db:
-        condition: service_healthy
-
-    restart: unless-stopped
-
-volumes:
-  postgres_data:
+  deploy:
+    name: Deploy to Server
+    needs: test
+    if: github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Execute SSH commands
+        uses: appleboy/ssh-action@v1.0.3
+        with:
+          host: ${{ secrets.SERVER_HOST }}
+          username: ${{ secrets.SERVER_USERNAME }}
+          key: ${{ secrets.SERVER_SSH_KEY }}
+          script: |
+            # UPDATE THIS: Change to your actual project directory on the server
+            cd /home/${{ secrets.SERVER_USERNAME }}/dailo-backend
+            
+            # Pull latest changes from the main branch
+            git pull origin main
+            
+            # Rebuild and restart the docker-compose services
+            docker-compose up --build -d
