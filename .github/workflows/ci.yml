@@ -1,89 +1,131 @@
-name: CI/CD
+name: Deploy Production
 
 on:
   push:
     branches: ["main"]
 
+
 jobs:
 
-  test:
+  build:
 
     runs-on: ubuntu-latest
-
-    services:
-
-      postgres:
-        image: postgres:15
-        env:
-          POSTGRES_USER: postgres
-          POSTGRES_PASSWORD: postgres
-          POSTGRES_DB: dailo
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-
-      redis:
-        image: redis:7
-        ports:
-          - 6379:6379
 
     steps:
 
       - uses: actions/checkout@v4
 
-      - name: Install uv
-        uses: astral-sh/setup-uv@v5
+      - name: Login docker
+        uses: docker/login-action@v3
+        with:
+          username: ${{ secrets.DOCKER_USERNAME }}
+          password: ${{ secrets.DOCKER_PASSWORD }}
 
-      - name: Install python
-        run: uv python install 3.12
+      - name: Setup buildx
+        uses: docker/setup-buildx-action@v3
 
-      - name: Install deps
-        run: uv sync --all-extras --dev
+      - name: Build & push image
+        uses: docker/build-push-action@v5
 
-      - name: Run tests
-        env:
-          ENVIRONMENT: dev
-          SECRET_KEY: test_secret_key
-          DATABASE_URL: postgres://postgres:postgres@localhost:5432/dailo
-          CELERY_BROKER_URL: redis://localhost:6379/0
-          CELERY_RESULT_BACKEND: redis://localhost:6379/0
-        run: |
-          sleep 5
-          uv run python manage.py migrate
-          uv run python manage.py test
+        with:
+          context: .
+          push: true
+          tags: ${{ secrets.DOCKER_USERNAME }}/dailo-backend:latest
+          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache
+          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache,mode=max
 
 
 
   deploy:
 
-    needs: test
+    needs: build
 
     runs-on: ubuntu-latest
 
     steps:
 
-      - name: Deploy
+      - name: copy compose file
+        uses: appleboy/scp-action@v0.1.7
+
+        with:
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
+
+          source: "docker-compose.prod.yml"
+
+          target: "/home/${{ secrets.SSH_USER }}/dailo-backend/"
+
+
+      - name: deploy server
+
         uses: appleboy/ssh-action@v1.0.3
 
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USERNAME }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
+          host: ${{ secrets.SSH_HOST }}
+          username: ${{ secrets.SSH_USER }}
+          key: ${{ secrets.SSH_KEY }}
 
           script: |
 
-            cd /home/${{ secrets.SERVER_USERNAME }}/dailo-backend
+            cd /home/${{ secrets.SSH_USER }}/dailo-backend
 
-            git pull origin main
 
-            docker compose up -d --build
+            echo "ENVIRONMENT=prod" > .env
+            echo "DEBUG=False" >> .env
+            echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
+            echo "ALLOWED_HOSTS=*" >> .env
 
-            docker compose exec -T web python manage.py migrate
 
-            docker compose exec -T web python manage.py collectstatic --noinput
+            echo "DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}" >> .env
+
+            echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
+            echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
+            echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" >> .env
+
+
+            echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
+            echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
+            echo "EMAIL_USE_TLS=${{ secrets.EMAIL_USE_TLS }}" >> .env
+            echo "EMAIL_USE_SSL=${{ secrets.EMAIL_USE_SSL }}" >> .env
+            echo "EMAIL_HOST_USER=${{ secrets.EMAIL_HOST_USER }}" >> .env
+            echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> .env
+            echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> .env
+
+
+            echo "CELERY_BROKER_URL=redis://redis:6379/0" >> .env
+            echo "CELERY_RESULT_BACKEND=redis://redis:6379/0" >> .env
+
+
+            echo "CLOUD_NAME=${{ secrets.CLOUD_NAME }}" >> .env
+            echo "CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}" >> .env
+            echo "CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}" >> .env
+            echo "CLOUDINARY_WEBHOOK_SECRET=${{ secrets.CLOUDINARY_WEBHOOK_SECRET }}" >> .env
+
+
+            echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env
+            echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env
+            echo "AWS_STORAGE_BUCKET_NAME=${{ secrets.AWS_STORAGE_BUCKET_NAME }}" >> .env
+            echo "AWS_S3_ENDPOINT_URL=${{ secrets.AWS_S3_ENDPOINT_URL }}" >> .env
+            echo "MEDIA_URL=${{ secrets.MEDIA_URL }}" >> .env
+
+
+            export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
+
+            sed -i "s|DOCKER_USERNAME|$DOCKER_USERNAME|g" docker-compose.prod.yml
+
+
+            docker compose -f docker-compose.prod.yml pull
+
+            docker compose -f docker-compose.prod.yml up -d --remove-orphans
+
+
+            docker compose -f docker-compose.prod.yml exec -T web python manage.py migrate
+
+            docker compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput
+
 
             docker image prune -f
+
+
+            echo "DEPLOY SUCCESS"
