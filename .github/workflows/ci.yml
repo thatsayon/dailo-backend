@@ -1,41 +1,38 @@
 version: "3.9"
 
 services:
-
   db:
     image: postgres:15-alpine
-    container_name: dailo_db
 
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
       POSTGRES_DB: dailo
 
-    ports:
-      - "5432:5432"
-
     volumes:
       - postgres_data:/var/lib/postgresql/data
 
     restart: unless-stopped
 
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
   redis:
     image: redis:7-alpine
-    container_name: dailo_redis
-
-    ports:
-      - "6379:6379"
 
     restart: unless-stopped
 
+
   web:
     build: .
-    container_name: dailo_web
 
-    command: uvicorn config.asgi:application --host 0.0.0.0 --port 8000 --reload
-
-    volumes:
-      - .:/app
+    command: gunicorn config.asgi:application \
+      -k uvicorn.workers.UvicornWorker \
+      --bind 0.0.0.0:8000 \
+      --workers 3
 
     ports:
       - "8000:8000"
@@ -44,38 +41,34 @@ services:
       - .env
 
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SETTINGS_MODULE: config.settings.prod
       DATABASE_URL: postgresql://postgres:postgres@db:5432/dailo
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
 
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
 
     restart: unless-stopped
 
   celery:
     build: .
-    container_name: dailo_celery
 
     command: celery -A config worker -l info
-
-    volumes:
-      - .:/app
 
     env_file:
       - .env
 
     environment:
-      DJANGO_SETTINGS_MODULE: config.settings.dev
+      DJANGO_SETTINGS_MODULE: config.settings.prod
       DATABASE_URL: postgresql://postgres:postgres@db:5432/dailo
       CELERY_BROKER_URL: redis://redis:6379/0
       CELERY_RESULT_BACKEND: redis://redis:6379/0
 
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
 
     restart: unless-stopped
 
