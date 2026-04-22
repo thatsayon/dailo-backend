@@ -4,40 +4,9 @@ on:
   push:
     branches: ["main"]
 
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # ← opt-in now; safe to remove after June 2026
-
 jobs:
 
-  build:
-
-    runs-on: ubuntu-latest
-
-    steps:
-
-      - uses: actions/checkout@v4.2.2          # ← was @v4 (unpinned, resolved to old patch)
-
-      - name: Login docker
-        uses: docker/login-action@v3.3.0       # ← was @v3 (unpinned, resolved to old patch)
-        with:
-          username: ${{ secrets.DOCKER_USERNAME }}
-          password: ${{ secrets.DOCKER_PASSWORD }}
-
-      - name: Setup buildx
-        uses: docker/setup-buildx-action@v3
-
-      - name: Build & push image
-        uses: docker/build-push-action@v5
-        with:
-          context: .
-          push: true
-          tags: ${{ secrets.DOCKER_USERNAME }}/dailo-backend:latest
-          cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache
-          cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache,mode=max
-
   deploy:
-
-    needs: build
 
     runs-on: ubuntu-latest
 
@@ -60,6 +29,8 @@ jobs:
           key: ${{ secrets.SSH_KEY }}
           script: |
             cd /home/${{ secrets.SSH_USER }}/dailo-backend
+
+            git pull origin main
 
             echo "ENVIRONMENT=prod" > .env
             echo "DEBUG=False" >> .env
@@ -93,10 +64,7 @@ jobs:
             echo "AWS_S3_ENDPOINT_URL=${{ secrets.AWS_S3_ENDPOINT_URL }}" >> .env
             echo "MEDIA_URL=${{ secrets.MEDIA_URL }}" >> .env
 
-            export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
-            sed -i "s|DOCKER_USERNAME|$DOCKER_USERNAME|g" docker-compose.prod.yml
-
-            docker compose -f docker-compose.prod.yml pull
+            docker compose -f docker-compose.prod.yml build
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
             docker compose -f docker-compose.prod.yml exec -T web python manage.py migrate
