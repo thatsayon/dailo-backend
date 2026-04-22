@@ -4,6 +4,8 @@ on:
   push:
     branches: ["main"]
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true   # ← opt-in now; safe to remove after June 2026
 
 jobs:
 
@@ -13,10 +15,10 @@ jobs:
 
     steps:
 
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4.2.2          # ← was @v4 (unpinned, resolved to old patch)
 
       - name: Login docker
-        uses: docker/login-action@v3
+        uses: docker/login-action@v3.3.0       # ← was @v3 (unpinned, resolved to old patch)
         with:
           username: ${{ secrets.DOCKER_USERNAME }}
           password: ${{ secrets.DOCKER_PASSWORD }}
@@ -26,15 +28,12 @@ jobs:
 
       - name: Build & push image
         uses: docker/build-push-action@v5
-
         with:
           context: .
           push: true
           tags: ${{ secrets.DOCKER_USERNAME }}/dailo-backend:latest
           cache-from: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache
           cache-to: type=registry,ref=${{ secrets.DOCKER_USERNAME }}/dailo-backend:cache,mode=max
-
-
 
   deploy:
 
@@ -46,43 +45,31 @@ jobs:
 
       - name: copy compose file
         uses: appleboy/scp-action@v0.1.7
-
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-
           source: "docker-compose.prod.yml"
-
           target: "/home/${{ secrets.SSH_USER }}/dailo-backend/"
 
-
       - name: deploy server
-
         uses: appleboy/ssh-action@v1.0.3
-
         with:
           host: ${{ secrets.SSH_HOST }}
           username: ${{ secrets.SSH_USER }}
           key: ${{ secrets.SSH_KEY }}
-
           script: |
-
             cd /home/${{ secrets.SSH_USER }}/dailo-backend
-
 
             echo "ENVIRONMENT=prod" > .env
             echo "DEBUG=False" >> .env
             echo "SECRET_KEY=${{ secrets.SECRET_KEY }}" >> .env
             echo "ALLOWED_HOSTS=*" >> .env
 
-
             echo "DATABASE_URL=postgresql://postgres:${{ secrets.POSTGRES_PASSWORD }}@db:5432/${{ secrets.POSTGRES_DB }}" >> .env
-
             echo "POSTGRES_USER=${{ secrets.POSTGRES_USER }}" >> .env
             echo "POSTGRES_PASSWORD=${{ secrets.POSTGRES_PASSWORD }}" >> .env
             echo "POSTGRES_DB=${{ secrets.POSTGRES_DB }}" >> .env
-
 
             echo "EMAIL_HOST=${{ secrets.EMAIL_HOST }}" >> .env
             echo "EMAIL_PORT=${{ secrets.EMAIL_PORT }}" >> .env
@@ -92,16 +79,13 @@ jobs:
             echo "EMAIL_HOST_PASSWORD=${{ secrets.EMAIL_HOST_PASSWORD }}" >> .env
             echo "DEFAULT_FROM_EMAIL=${{ secrets.DEFAULT_FROM_EMAIL }}" >> .env
 
-
             echo "CELERY_BROKER_URL=redis://redis:6379/0" >> .env
             echo "CELERY_RESULT_BACKEND=redis://redis:6379/0" >> .env
-
 
             echo "CLOUD_NAME=${{ secrets.CLOUD_NAME }}" >> .env
             echo "CLOUDINARY_API_KEY=${{ secrets.CLOUDINARY_API_KEY }}" >> .env
             echo "CLOUDINARY_API_SECRET=${{ secrets.CLOUDINARY_API_SECRET }}" >> .env
             echo "CLOUDINARY_WEBHOOK_SECRET=${{ secrets.CLOUDINARY_WEBHOOK_SECRET }}" >> .env
-
 
             echo "AWS_ACCESS_KEY_ID=${{ secrets.AWS_ACCESS_KEY_ID }}" >> .env
             echo "AWS_SECRET_ACCESS_KEY=${{ secrets.AWS_SECRET_ACCESS_KEY }}" >> .env
@@ -109,23 +93,15 @@ jobs:
             echo "AWS_S3_ENDPOINT_URL=${{ secrets.AWS_S3_ENDPOINT_URL }}" >> .env
             echo "MEDIA_URL=${{ secrets.MEDIA_URL }}" >> .env
 
-
             export DOCKER_USERNAME=${{ secrets.DOCKER_USERNAME }}
-
             sed -i "s|DOCKER_USERNAME|$DOCKER_USERNAME|g" docker-compose.prod.yml
 
-
             docker compose -f docker-compose.prod.yml pull
-
             docker compose -f docker-compose.prod.yml up -d --remove-orphans
 
-
             docker compose -f docker-compose.prod.yml exec -T web python manage.py migrate
-
             docker compose -f docker-compose.prod.yml exec -T web python manage.py collectstatic --noinput
 
-
             docker image prune -f
-
 
             echo "DEPLOY SUCCESS"
