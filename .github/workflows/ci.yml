@@ -12,6 +12,9 @@ jobs:
 
     steps:
 
+      - name: Checkout code
+        uses: actions/checkout@v4
+
       - name: copy compose file
         uses: appleboy/scp-action@v0.1.7
         with:
